@@ -4,6 +4,8 @@ library(magrittr)
 library(DT)
 library(tibble)
 library(shinythemes)
+library(heatmaply)
+library(plotly)
 
 ### load aBSREL data
 
@@ -13,7 +15,7 @@ load(file = "data/results_pval_count_all.RData")
 ### load MEME data
 
 load(file = "data/MEME_simple_nsites_subs_EBF.RData")
-#load(file = "Shiny_Acomys/data/MEME_simple_nsites_subs.RData")
+#load(file = "Shiny_Acomys/data/MEME_simple_nsites_subs_EBF.RData")
 
 name_conversion <- read_csv("data/name_conversion.csv")
 #name_conversion <- read_csv("Shiny_Acomys/data/name_conversion.csv")
@@ -155,6 +157,43 @@ ui <- navbarPage(
                                         hr(),
                                         DT::dataTableOutput("MEME_branch_subs"),
                                         hr()
+                                        ),
+                               tabPanel("EBF",
+                                        plotlyOutput("EBF_heatmap"),
+                                        br(),
+                                        br(),
+                                        br(),
+                                        br(),
+                                        br(),
+                                        br(),
+                                        br(),
+                                        br(),
+                                        br(),
+                                        br(),
+                                        br(),
+                                        br(),
+                                        br(),
+                                        br(),
+                                        br(),
+                                        br(),
+                                        br(),
+                                        br(),
+                                        br(),
+                                        br(),
+                                        br(),
+                                        br(),
+                                        br(),
+                                        br(),
+                                        br(),
+                                        br(),
+                                        br(),
+                                        br(),
+                                        fluidRow(
+                                          column(3,
+                                                 checkboxInput("MEME_EBF_inf_remove", "Remove infinite EBF values", value = TRUE)),
+                                          column(9,
+                                                 checkboxInput("MEME_EBF_acomys_select", "Only select Acomys cahirinus EBF values", value = FALSE))),
+                                        DT::dataTableOutput("EBF_table")
                                         )
                              )
                       )
@@ -310,6 +349,8 @@ server <- function(input, output, session) {
       use_series(genename)
   })
   
+  ### MEME backend for 'test results' tabpanel
+  
   output$MEMETableDescription <- renderUI({
     
     if (get_genename_MEME() == "") {
@@ -413,6 +454,8 @@ server <- function(input, output, session) {
     HTML(paragraph)
   }) 
   
+  ### MEME backend for 'Multiple sequence alignment' tabpanel
+  
   # Render the multiple sequence alignment
   output$MultipleAlignment <- renderUI({
     
@@ -427,6 +470,8 @@ server <- function(input, output, session) {
     tags$iframe(style="height:900px; width:100%; scrolling=yes", 
                 src = gene_URL)
   })
+  
+  ### MEME backend for 'Substitutions' tabpanel
   
   # Get acomys substitution data from MEME_data
   get_MEME_acomys_sub <- reactive({
@@ -517,6 +562,95 @@ server <- function(input, output, session) {
     get_MEME_branch_subs()
   }, rownames = FALSE, options = list(scrollY = "500px", scrollX = TRUE, 
                                       lengthMenu = c(get_MEME_branch_subs_length(), 20))
+  )
+  
+  ### MEME backend for 'EBF' tabpanel
+  
+  # retrieve EBF table
+  get_EBF_data <- reactive({
+    
+    MEME_row <- get_MEME_data_row()
+    
+    MEME_row %>%
+      use_series(EBF_table) %>%
+      extract2(1) %>%
+      rename(`Branch assembly name` = branch) %>%
+      # change assembly names to species names
+      mutate(`Branch name` = map_chr(`Branch assembly name`, ~ {
+        if (.x == "REFERENCE") {
+          return("Homo_sapiens")
+        } else if (!(.x %in% name_conversion$Assembly.name)) {
+          return(.x)
+        } else if (.x %in% name_conversion$Assembly.name) {
+          index <- which(.x == name_conversion$Assembly.name)
+          species_tree <- name_conversion$Species_Tree[index]
+          return(species_tree)
+        } else {
+          cat("ERROR! non-recognized branch name!")
+          return(NULL)
+        }
+      })) %>%
+      relocate(site, `Branch assembly name`, `Branch name`, EBF)
+  })
+  
+  MEME_EBF_inf_remover <- reactive({
+    get_EBF_data() %>%
+      {if (input$MEME_EBF_inf_remove) filter(., !(is.infinite(EBF))) else .}
+  })
+  
+  MEME_EBF_acomys_selecter <- reactive({
+    MEME_EBF_inf_remover() %>%
+      {if (input$MEME_EBF_acomys_select) filter(., `Branch name` == "Acomys_cahirinus") else .}
+    
+  })
+  
+  # get EBF_table length
+  get_EBF_data_length <- reactive({
+    nrow(MEME_EBF_acomys_selecter())
+  })
+  
+  # render heatmap
+  output$EBF_heatmap <- renderPlotly({
+    
+    # remove infinite rows
+    EBF_heatmap <- get_EBF_data() %>%
+      filter(!(is.infinite(EBF)))
+    
+    # limit heatmap to the following species
+    included_assemblies <- c("REFERENCE", "HLpsaObe1", "HLmerUng1", "HLratNor7", "rn6", 
+                             "HLmusPah1", "HLmusCar1", "mm10", "mm39", "HLacoCah1",
+                             "HLonyTor1", "HLperManBai2", "HLsigHis1", "HLellLut1", 
+                             "HLondZib1", "HLcriGri3", "HLmesAur2", "mesAur1")
+    
+    # filter for included assemblies
+    EBF_heatmap %<>%
+      filter(`Branch assembly name` %in% included_assemblies) %>%
+      rename(name = site, variable = `Branch name`, value = EBF) %>%
+      select(!`Branch assembly name`)
+    
+    # perform a log transformation, making the data more normal, improving the
+    # visualization
+    EBF_heatmap %<>%
+      mutate(value = log10(value))
+    
+    # generate heatmap
+    heatmaply(long_data = EBF_heatmap,
+              dendrogram = "none",
+              xlab = "", ylab = "",
+              main = "",
+              scale = "none",
+              label_names = c("Codon", "Branch", "log10(EBF)"),
+              showticklabels = c(TRUE, FALSE),
+              fontsize_col = 8) %>%
+      layout(width = 700, height = 1000)
+  })
+  
+  # render datatable
+  output$EBF_table <- DT::renderDataTable({
+    
+    MEME_EBF_acomys_selecter()
+  }, rownames = FALSE, options = list(scrollY = "500px", 
+                                      lengthMenu = c(20, 50, 100, 500, 1000)) 
   )
   
 }
