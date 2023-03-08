@@ -12,7 +12,7 @@ load(file = "data/results_pval_count_all.RData")
 
 ### load MEME data
 
-load(file = "data/MEME_simple_nsites_subs.RData")
+load(file = "data/MEME_simple_nsites_subs_EBF.RData")
 #load(file = "Shiny_Acomys/data/MEME_simple_nsites_subs.RData")
 
 name_conversion <- read_csv("data/name_conversion.csv")
@@ -23,8 +23,8 @@ name_conversion <- read_csv("data/name_conversion.csv")
 aBSREL_data <- results_tibble_count_cor
 rm(results_tibble_count_cor)
 
-MEME_data <- MEME_simple_nsites_subs
-rm(MEME_simple_nsites_subs)
+MEME_data <- MEME_simple_nsites_subs_EBF
+rm(MEME_simple_nsites_subs_EBF)
 
 ### get genelist and transcript IDs for aBSREL results
 
@@ -40,7 +40,6 @@ transcript_ids_sign <- aBSREL_sign %>%
   select(transcript_id) %>%
   use_series(transcript_id)
 rm(aBSREL_sign)
-
 
 ### get genenames and transcript IDs for MEME results
 MEME_genenames <- MEME_data$genename
@@ -169,61 +168,74 @@ server <- function(input, output, session) {
   ### Backend for aBSREL results page
   
   observe({
+
+    # freezes all reactive expressions until everything has been updated.
+    # Without this, there is one second where it tries to treat gene symbols as
+    # transcript IDs or vice versa, leading to errors.
+    freezeReactiveValue(input, "aBSRELGeneInput")
     
     if (input$aBSRELTranscriptIDSelect) {
       if (input$aBSRELSignSwitch) {
-        updateSelectizeInput(session, "aBSRELGeneInput", choices = transcript_ids_sign, server = TRUE, 
+        updateSelectizeInput(session, "aBSRELGeneInput", choices = transcript_ids_sign, server = TRUE,
                              options = list(placeholder = "Transcript id"))
       } else {
-        updateSelectizeInput(session, "aBSRELGeneInput", choices = transcript_ids, server = TRUE, 
+        updateSelectizeInput(session, "aBSRELGeneInput", choices = transcript_ids, server = TRUE,
                              options = list(placeholder = "Transcript id"))
       }
     } else {
       if (input$aBSRELSignSwitch) {
-        updateSelectizeInput(session, "aBSRELGeneInput", choices = genenames_sign, server = TRUE, 
+        updateSelectizeInput(session, "aBSRELGeneInput", choices = genenames_sign, server = TRUE,
                              options = list(placeholder = "Gene name"))
       } else {
-        updateSelectizeInput(session, "aBSRELGeneInput", choices = genenames, server = TRUE, 
+        updateSelectizeInput(session, "aBSRELGeneInput", choices = genenames, server = TRUE,
                              options = list(placeholder = "Gene name"))
       }
     }
-    
+
   })
+  
   
   # retrieve which gene has been selected
   get_genename <- reactive({
     
+    aBSREL_input <- input$aBSRELGeneInput
+    
     # return nothing when no gene has been chosen
-    if (input$aBSRELGeneInput == "") {
+    if (aBSREL_input == "" ) {
       return("")
     }
     
     aBSREL_data %>%
-      {if (input$aBSRELTranscriptIDSelect) filter(., transcript_id == input$aBSRELGeneInput) else filter(., genename == input$aBSRELGeneInput)} %>%
-      use_series(genename)
+      {if (input$aBSRELTranscriptIDSelect) filter(., transcript_id == aBSREL_input) else filter(., genename == aBSREL_input)} %>%
+     use_series(genename)
+    
   })
-  
+
   output$aBSRELTableDescription <- renderUI({
     
-    if (get_genename() == "") {
+    genename <- get_genename()
+    
+    if (genename == "") {
       # If no gene has been selected
       strong("Select a gene to display its results")
     } else {
       # If a gene has been selected
-      strong(paste("aBSREL results of", get_genename()))
+      strong(paste("aBSREL results of", genename))
     }
   })
   
   get_aBSREL_results <- reactive({
     
-    # Makes sure no table gets generated when no gene has been chosen
-    if (get_genename() == "") {
+    genename_chosen <- get_genename()
+    
+    # Makes sure nothing gets generated when no gene has been selected
+    if (genename_chosen == "") {
       return(NULL)
     }
     
     # generation of datatable
     aBSREL_data %>%
-      filter(genename == get_genename()) %>%
+      filter(genename == genename_chosen) %>%
       use_series(test_results) %>%
       extract2(1) %>%
       rename("Branch name" = "branch_name", "Likelyhood ratio test statistic" = "LRT",
@@ -251,10 +263,6 @@ server <- function(input, output, session) {
   })
   
   get_aBSREL_results_length <- reactive({
-    # Makes sure nothing gets generated when no gene has been selected
-    if (get_genename() == "") {
-      return(NULL)
-    }
     
     nrow(get_aBSREL_results())
   })
@@ -263,7 +271,7 @@ server <- function(input, output, session) {
     
     # Makes sure no table gets generated when no gene has been chosen
     if (get_genename() == "") {
-      return(NULL)
+      return(tibble())
     }
     
     get_aBSREL_results()
@@ -276,6 +284,9 @@ server <- function(input, output, session) {
   ### Backend for MEME results page
   
   observe({
+    
+    freezeReactiveValue(input, "MEMEGeneInput")
+    
     if (input$MEMETranscriptIDSelect) {
       
         updateSelectizeInput(session, "MEMEGeneInput", choices = MEME_transcript_ids, server = TRUE, 
@@ -380,14 +391,14 @@ server <- function(input, output, session) {
       return(NULL)
     }
 
+    MEME_row <- get_MEME_data_row()
+
     # get number of significant sites
-    n_of_sites <- MEME_data %>%
-      filter(genename == get_genename_MEME()) %>%
+    n_of_sites <- MEME_row %>%
       use_series(n_of_sites) %>%
       as.character()
     # get significant site location
-    sites <- MEME_data %>%
-      filter(genename == get_genename_MEME()) %>%
+    sites <- MEME_row %>%
       use_series(sites) %>%
       extract2(1) %>%
       as.character() %>%
