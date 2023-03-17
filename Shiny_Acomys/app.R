@@ -82,7 +82,8 @@ ui <- navbarPage(
                                checkboxInput("MEMETranscriptIDSelect", "Choose genes based on their transcript IDs", value = FALSE)),
                              wellPanel(
                                h3("Table options"),
-                               checkboxInput("MEMETableSignSites", "Only show significant sites", value = FALSE)
+                               checkboxInput("MEMETableSignSites", "Only show significant sites", value = FALSE),
+                               numericInput("p_val_select", "p-value significance cut-off", value = 0.1)
                              )),
                       column(9,
                              tabsetPanel(
@@ -392,7 +393,7 @@ server <- function(input, output, session) {
       add_column(site = seq(nrow(.))) %>%
       relocate(site) %>%
       # remove non-significant sites if input$MEMETableSignSites is TRUE
-      {if (input$MEMETableSignSites) filter(., `p-value` <= 0.05) else .} 
+      {if (input$MEMETableSignSites) filter(., `p-value` <= input$p_val_select) else .} 
   })
   
   get_MEME_results_length <- reactive({
@@ -432,22 +433,24 @@ server <- function(input, output, session) {
       return(NULL)
     }
 
-    MEME_row <- get_MEME_data_row()
-
+    # filter with p-value <= 0.1 if input$MEMETableSignSites is FALSE
+    filtered_results <- get_MEME_results() %>%
+      {if (input$MEMETableSignSites == FALSE) filter(., `p-value` <= 0.1) else .}
+      
     # get number of significant sites
-    n_of_sites <- MEME_row %>%
-      use_series(n_of_sites) %>%
-      as.character()
+    n_of_sites <- filtered_results %>%  
+      use_series(site) %>%
+      length()
+    
     # get significant site location
-    sites <- MEME_row %>%
-      use_series(sites) %>%
-      extract2(1) %>%
+    sites <- filtered_results %>%
+      use_series(site) %>%
       as.character() %>%
       paste(collapse = ", ")
     
     paragraph <- paste0(h3(HTML(paste(em(get_genename_MEME()), "result summary:"))), 
                         p(HTML(paste(get_genename_MEME(), "was found to have", strong(n_of_sites),
-                                strong("codon sites"), "with significant signs of episodic diversifying",
+                                strong("codon sites"), "with significant signs (p <= ", input$p_val_select, ") of episodic diversifying",
                                 "selection"))),
                         p(HTML(paste("These codon sites are", strong(sites), ".")))
                         )
