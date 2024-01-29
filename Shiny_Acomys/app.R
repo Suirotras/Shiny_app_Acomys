@@ -8,44 +8,54 @@ library(heatmaply)
 library(plotly)
 
 ### load aBSREL data
+load(file = "data/aBSREL_data.RData")
 
-load(file = "data/results_pval_count_all.RData")
-#load(file = "Shiny_Acomys/data/results_pval_count_all.RData")
-
-### load MEME data
-
-load(file = "data/MEME_simple_nsites_subs_EBF.RData")
-#load(file = "Shiny_Acomys/data/MEME_simple_nsites_subs_EBF.RData")
-
+### load name conversion file
 name_conversion <- read_csv("data/name_conversion.csv")
-#name_conversion <- read_csv("Shiny_Acomys/data/name_conversion.csv")
 
-### rename data
+### load the genenames and corresponding ensemble IDs for the significant and
+### non-significant genes
 
-aBSREL_data <- results_tibble_count_cor
-rm(results_tibble_count_cor)
+cbind_genelists <- function(genelist_paths, col_names) {
+  # Function that reads the genelists and binds the columns in a single dataframe.
+  #   args:
+  #     genelist_paths: A vector of the filepaths of the genelists.
+  #     col_names: A vector of the names that the columns should have in the
+  #                combined datraframe. Should be in the same order as genelist_paths.
+  require(readr)
+  require(dplyr)
+  
+  dfs <- lapply(seq_along(genelist_paths), function(i) {
+    read_csv(genelist_paths[i], col_names = col_names[i], show_col_types = FALSE)
+  })
+  return(do.call("cbind", dfs))
+}
 
-MEME_data <- MEME_simple_nsites_subs_EBF
-rm(MEME_simple_nsites_subs_EBF)
+### get function arguments (filepaths and column names)
+genelist_path <- file.path("data", "genelists_one2one")
+genelist_sign_path <- c(file.path(genelist_path, "aBSREL_human_gene_ids_sign.txt"),
+                        file.path(genelist_path, "aBSREL_human_genenames_sign.txt"),
+                        file.path(genelist_path, "aBSREL_human_transcript_ids_sign.txt"))
+genelist_all_path <- c(file.path(genelist_path, "aBSREL_human_gene_ids.txt"),
+                       file.path(genelist_path, "aBSREL_human_genenames.txt"),
+                       file.path(genelist_path, "aBSREL_human_transcript_ids.txt"))
+col_names <- c("ensemble", "names", "ensembleTrans")
 
-### get genelist and transcript IDs for aBSREL results
+### get genelist dataframes
+sign_genes <- cbind_genelists(genelist_sign_path, col_names)
+all_genes <- cbind_genelists(genelist_all_path, col_names)
 
-genenames <- aBSREL_data$genename
-transcript_ids <- aBSREL_data$transcript_id
-# get genelist of acomys sign genes only
-aBSREL_sign <- aBSREL_data %>%
-  filter(`P_value` <= 0.05)
-genenames_sign <- aBSREL_sign %>%
-  select(genename) %>%
-  use_series(genename)
-transcript_ids_sign <- aBSREL_sign %>%
-  select(transcript_id) %>%
-  use_series(transcript_id)
-rm(aBSREL_sign)
+### get genenames and transcript IDs for aBSREL
+# all tested genes
+genenames <- all_genes$names
+transcript_ids <- all_genes$ensembleTrans
+# sign genes
+genenames_sign <- sign_genes$names
+transcript_ids_sign <- sign_genes$ensembleTrans
 
 ### get genenames and transcript IDs for MEME results
-MEME_genenames <- MEME_data$genename
-MEME_transcript_ids <- MEME_data$transcript_id
+MEME_genenames <- sign_genes$names
+MEME_transcript_ids <- sign_genes$ensembleTrans
 
 # Define UI ----
 ui <- navbarPage(
@@ -245,10 +255,12 @@ server <- function(input, output, session) {
       return("")
     }
     
-    aBSREL_data %>%
-      {if (input$aBSRELTranscriptIDSelect) filter(., transcript_id == aBSREL_input) else filter(., genename == aBSREL_input)} %>%
-     use_series(genename)
-    
+    # select using transcript ID, if that option has been set
+    if (input$aBSRELTranscriptIDSelect) {
+      all_genes$names[all_genes$ensembleTrans == aBSREL_input]
+    } else {
+      all_genes$names[all_genes$names == aBSREL_input]
+    }
   })
 
   output$aBSRELTableDescription <- renderUI({
@@ -289,10 +301,10 @@ server <- function(input, output, session) {
       mutate(`Branch name` = map_chr(`Branch name`, ~ {
         if (.x == "REFERENCE") {
           return("Homo_sapiens")
-        } else if (!(.x %in% name_conversion$Assembly.name)) {
+        } else if (!(.x %in% name_conversion$`Assembly name`)) {
           return(.x)
-        } else if (.x %in% name_conversion$Assembly.name) {
-          index <- which(.x == name_conversion$Assembly.name)
+        } else if (.x %in% name_conversion$`Assembly name`) {
+          index <- which(.x == name_conversion$`Assembly name`)
           species_tree <- name_conversion$Species_Tree[index]
           return(species_tree)
         } else {
@@ -344,10 +356,12 @@ server <- function(input, output, session) {
     if (input$MEMEGeneInput == "") {
       return("")
     }
-
-    MEME_data %>%
-      {if (input$MEMETranscriptIDSelect) filter(., transcript_id == input$MEMEGeneInput) else filter(., genename == input$MEMEGeneInput)} %>%
-      use_series(genename)
+    
+    if (input$MEMETranscriptIDSelect) {
+      all_genes$names[all_genes$ensembleTrans == input$MEMEGeneInput]
+    } else {
+      all_genes$names[all_genes$names == input$MEMEGeneInput]
+    }
   })
   
   ### MEME backend for 'test results' tabpanel
@@ -373,8 +387,10 @@ server <- function(input, output, session) {
       return(NULL)
     }
     
-    MEME_data %>%
-      filter(genename == get_genename_MEME())
+    # load the required RData object
+    load(file.path("data", "MEME_data",
+                   paste0("MEME_data_", get_genename_MEME(), ".RData")))
+    return(RData_row)
   })
   
   get_MEME_results <- reactive({
@@ -486,10 +502,14 @@ server <- function(input, output, session) {
     
     MEME_row <- get_MEME_data_row()
     
-    MEME_row %>%
+    MEME_row <- MEME_row %>%
       use_series(substitutions) %>%
-      extract2(1) %>%
-      rename("Acomys_cahirinus" = "HLacoCah1")
+      extract2(1)
+    
+    HLacoCah2_colname <- colnames(MEME_row)[str_detect(colnames(MEME_row), "HLacoCah2")]
+    
+    MEME_row %>%
+      rename("Acomys_cahirinus" = all_of(HLacoCah2_colname))
   })
   
   get_MEME_acomys_sub_length <- reactive({
@@ -532,10 +552,10 @@ server <- function(input, output, session) {
       mutate(`Branch name` = map_chr(`Branch name`, ~ {
         if (.x == "REFERENCE") {
           return("Homo_sapiens")
-        } else if (!(.x %in% name_conversion$Assembly.name)) {
+        } else if (!(.x %in% name_conversion$`Assembly name`)) {
           return(.x)
-        } else if (.x %in% name_conversion$Assembly.name) {
-          index <- which(.x == name_conversion$Assembly.name)
+        } else if (.x %in% name_conversion$`Assembly name`) {
+          index <- which(.x == name_conversion$`Assembly name`)
           species_tree <- name_conversion$Species_Tree[index]
           return(species_tree)
         } else {
@@ -582,10 +602,10 @@ server <- function(input, output, session) {
       mutate(`Branch name` = map_chr(`Branch assembly name`, ~ {
         if (.x == "REFERENCE") {
           return("Homo_sapiens")
-        } else if (!(.x %in% name_conversion$Assembly.name)) {
+        } else if (!(.x %in% name_conversion$`Assembly name`)) {
           return(.x)
-        } else if (.x %in% name_conversion$Assembly.name) {
-          index <- which(.x == name_conversion$Assembly.name)
+        } else if (.x %in% name_conversion$`Assembly name`) {
+          index <- which(.x == name_conversion$`Assembly name`)
           species_tree <- name_conversion$Species_Tree[index]
           return(species_tree)
         } else {
@@ -621,7 +641,7 @@ server <- function(input, output, session) {
     
     # limit heatmap to the following species
     included_assemblies <- c("REFERENCE", "HLpsaObe1", "HLmerUng1", "HLratNor7", "rn6", 
-                             "HLmusPah1", "HLmusCar1", "mm10", "mm39", "HLacoCah1",
+                             "HLmusPah1", "HLmusCar1", "mm10", "mm39", "HLacoCah2",
                              "HLonyTor1", "HLperManBai2", "HLsigHis1", "HLellLut1", 
                              "HLondZib1", "HLcriGri3", "HLmesAur2", "mesAur1")
     
