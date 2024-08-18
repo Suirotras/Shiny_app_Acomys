@@ -7,9 +7,15 @@ library(magrittr)
 ### set working directory
 setwd(file.path("~", "Documents", "Github", "Shiny_app_Acomys"))
 
-### load aBSREL data
+### load and rename aBSREL data
 
 load(file = file.path("data_files", "aBSREL_analysis_pval_count.RData"))
+aBSREL_data <- results_tibble_count_cor
+rm(results_tibble_count_cor)
+
+load(file = file.path("data_files", "aBSREL_analysis_pval_count_bias.RData"))
+aBSREL_data_bias <- results_tibble_count_cor
+rm(results_tibble_count_cor)
 
 ### Load MEME data
 
@@ -22,9 +28,6 @@ load(file = file.path("data_files", "MEME_EBF_values_simple.RData"))
 # rename data
 MEME_data <- MEME_simple_nsites_subs_small
 rm(MEME_simple_nsites_subs_small)
-
-aBSREL_data <- results_tibble_count_cor
-rm(results_tibble_count_cor)
 
 # Combine EBF_data with MEME_data 
 MEME_data %<>%
@@ -65,6 +68,18 @@ split_rows <- function(RData_object, column_name = "genename",
 
 # get separate files for MEME data rows
 split_rows(MEME_data)
+
+# Combine aBSREL_data and aBSREL_data_bias into one dataframe
+
+for (gene in unique(aBSREL_data_bias$genename)) {
+  
+  # If no duplicates, replace aBSREL_data generow with aBSREL_data_bias_generow
+  if (nrow(aBSREL_data[aBSREL_data$genename == gene,]) == 1 &&
+      nrow(aBSREL_data_bias[aBSREL_data_bias$genename == gene,]) == 1) {
+    
+    aBSREL_data[aBSREL_data$genename == gene,] <- aBSREL_data_bias[aBSREL_data_bias$genename == gene,]
+  }
+}
 
 # simplify the aBSREL RData
 aBSREL_data <- aBSREL_data %>%
