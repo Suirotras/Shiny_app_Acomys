@@ -17,21 +17,39 @@ load(file = file.path("data_files", "aBSREL_analysis_pval_count_bias.RData"))
 aBSREL_data_bias <- results_tibble_count_cor
 rm(results_tibble_count_cor)
 
+### Load aBSREL-estimated dN/dS data
+
+dNdS_df <- read_delim(file.path("data_files", "aBSREL_dNdS_df.tsv"),
+                      delim = "\t", escape_double = FALSE,
+                      col_types = cols(rate_class_number = col_integer(),
+                                       omega_3 = col_double(), omega_3_prop = col_double()),
+                      trim_ws = TRUE)
+
 ### Load MEME data
 
 # MEME data with substitution columns
 load(file = file.path("data_files", "MEME_substitutions_small.RData"))
 
-# EBF data calculated from the MEME data
-load(file = file.path("data_files", "MEME_EBF_values_simple.RData"))
+# # EBF data calculated from the MEME data
+# load(file = file.path("data_files", "MEME_EBF_values_simple.RData"))
+
+# Uniprot-mapped EBF data from MEME results for bubbleplot
+load(file = file.path("data_files", "EBF_data_uniprot_bubbleplot.RData"))
+EBF_data_unimapped_bubble <- EBF_data_uniprot_noMSA
+rm(EBF_data_uniprot_noMSA)
+
+# Uniprot-mapped EBF data from MEME results for sign sites
+load(file = file.path("data_files", "EBF_data_uniprot.RData"))
+EBF_data_unimapped <- EBF_data_mapped_noMSA
+rm(EBF_data_mapped_noMSA)
 
 # rename data
 MEME_data <- MEME_simple_nsites_subs_small
 rm(MEME_simple_nsites_subs_small)
 
-# Combine EBF_data with MEME_data 
-MEME_data %<>%
-  left_join(MEME_EBF_simple)
+# # Combine EBF_data with MEME_data 
+# MEME_data %<>%
+#   left_join(MEME_EBF_simple)
 
 ### Split the data in multiple files on a per row basis
 
@@ -66,8 +84,20 @@ split_rows <- function(RData_object, column_name = "genename",
   }
 }
 
-# get separate files for MEME data rows
+# get separate files for MEME data rows and unimapped-EBF values
 split_rows(MEME_data)
+
+split_rows(EBF_data_unimapped_bubble, RData_basename = "EBF_data_up_bubble_",
+           subdir_name = file.path("~", "Documents", "Github",
+                                   "Shiny_app_Acomys",
+                                   "Shiny_Acomys", "data",
+                                   "EBF_data_uniprot_bubbleplot"))
+
+split_rows(EBF_data_unimapped, RData_basename = "EBF_data_up_",
+           subdir_name = file.path("~", "Documents", "Github",
+                                   "Shiny_app_Acomys",
+                                   "Shiny_Acomys", "data",
+                                   "EBF_data_uniprot"))
 
 # Combine aBSREL_data and aBSREL_data_bias into one dataframe
 
@@ -89,3 +119,13 @@ save(aBSREL_data, file = file.path("~", "Documents", "Github",
                                    "Shiny_app_Acomys",
                                    "Shiny_Acomys", "data",
                                    "aBSREL_data.RData"))
+
+# filter dN/dS data for Acomys data and save dN/dS data
+dNdS_df <- dNdS_df %>%
+  dplyr::filter(species == "HLacoCah2")
+
+write_delim(dNdS_df, file = file.path("~", "Documents", "Github",
+                                      "Shiny_app_Acomys",
+                                      "Shiny_Acomys", "data",
+                                      "aBSREL_acomys_dNdS_df.tsv"),
+            delim = "\t")
